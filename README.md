@@ -4,6 +4,10 @@ This script will parse NCSA style logs. It calculates 80th, 90th, and 95th perce
 This script is the ability to only search back N seconds in a long, preventing unnecessary calculations as well as providing you statistics that serve as point-in-time references.
 
 While this script is specifically for parsing varnish logs, it can easily be ported to any NCSA style log with very little work.
+### Using the script
+The script is meant to be invoked with a time period in mind (30 seconds, 60 seconds, etc). This provides feedback that is easily graphed. For example, you may want to keep track of periods when your cache-hit ratio drops so you can investigate what type of traffic is causing it.
+
+The output is easily parsable YAML or JSON. 
 ## Example
 ```
 GET:
