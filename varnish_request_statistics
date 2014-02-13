@@ -1,0 +1,186 @@
+#!/usr/bin/env python
+
+import argparse
+import json
+import math
+import os
+import sys
+import yaml
+from datetime import datetime
+
+default_log = "/var/log/varnish/varnishncsa.log"
+
+parser = argparse.ArgumentParser(description="""
+  Look back N seconds in a log and print out useful statistics.
+
+  By default the output will be YAML.""")
+parser.add_argument('-s', dest='seconds', type=int, default=None, required=True,
+  help='How many seconds to go back into the log file')
+parser.add_argument('-o', dest='output', type=str, default="yaml",
+  help='Output format. Supported types are yaml and json.')
+parser.add_argument('-f', dest='filename', type=str, default=default_log,
+  help='File to perform parsing operations. Default: %s' % default_log)
+args = parser.parse_args()
+
+seconds = args.seconds
+output = args.output
+filename = args.filename
+
+if seconds == None:
+  print parser.print_help()
+  sys.exit()
+
+# While not strictly necessary, it's easier to just declare the column values
+# here at the top so they can quickly be altered later.
+
+# These column values match the following varnishncsa format:
+#
+#  h %l %u %t "%r" %s %b %{Varnish:time_firstbyte}x %{Varnish:handling}x
+#
+
+log_column = {
+  'date': 1,
+  'method': 6,
+  'response': -4,
+  'response_time': -2,
+  'cache': -1,
+}
+  
+# Note that Varnish prepends an open bracket to the beginning of the date
+log_format = '[%d/%b/%Y:%H:%M:%S'
+
+# Temporarily set our timezone to UTC for ease of processing
+os.environ['TZ'] = 'UTC'
+
+now = int(datetime.now().strftime('%s'))
+threshold = now - seconds
+
+def percentile(N, percent, key=lambda x:x):
+  """
+  A function for generating percentiles from:
+
+    http://code.activestate.com/recipes/511478
+
+  """
+
+  if not N:
+    return None
+  N.sort()
+
+  k = (len(N)-1) * percent
+  f = math.floor(k)
+  c = math.ceil(k)
+  if f == c:
+    return key(N[int(k)])
+  d0 = key(N[int(f)]) * (c-k)
+  d1 = key(N[int(c)]) * (k-f)
+  return d0+d1
+
+# Placeholder variables for longest request, total request count, and cache
+# behavior
+longest_request = {
+  'time': 0,
+}
+logs = {
+  'processed': 0,
+  'skipped': 0
+}
+cache = {
+  'miss': 0,
+  'hit': 0
+}
+
+# We'll populate this dictionary with individual http methods as we go through
+# our logs
+http = {}
+
+for line in reversed(open(filename).readlines()):
+  "Read file in reverse and stop when we hit N seconds back"
+  logs['processed'] += 1
+
+  log = {}
+
+  values = line.split()
+
+  try:
+    log['date'] = values[log_column['date']]
+    log['method'] = values[log_column['method']].replace('"', '')
+    log['response'] = values[log_column['response']]
+    log['response_time'] = float(values[log_column['response_time']])
+  except:
+    # Maybe there was a strange line in the logs. Just skip it and make a note
+    logs['skipped'] += 1
+    pass
+
+  # For GETs we want to measure the cache hit ratio.
+  if log['method'] == 'GET' and values[log_column['cache']] == "hit":
+    cache['hit'] += 1
+  else:
+    cache['miss'] += 1
+
+  # We break out here if we've hit a line that's too old
+  date = int(datetime.strptime(log['date'], log_format).strftime('%s'))
+  if int(date) < int(threshold):
+    break
+
+  # As we encounter HTTP methods, we'll add it to our dict for processing
+  if log['method'] not in http:
+    http[log['method']] = []
+
+  http[log['method']].append(log)
+
+  # Keep a tally of the longest request
+  if longest_request['time'] < log['response_time']:
+    longest_request['time'] = log['response_time']
+    longest_request['log'] = line.rstrip()
+
+# Make sure we actually picked up some logs
+if longest_request['time'] == 0:
+  print "Error: No logs found going back %s seconds" % seconds
+  sys.exit(1)
+
+# These lists will hold our final statistic results
+all_response_times = {
+  'all': [],
+}
+percentiles = {
+  'all': {},
+  'request_statistics': {}
+}
+
+# Populate the lists with http methods we found in our logs
+for i in http:
+  all_response_times[i] = []
+  percentiles[i] = {}
+
+# Populate our response_times dictionary with all of our data
+for http_method in http.values():
+  for line in http_method:
+    all_response_times['all'].append(line['response_time'])
+    all_response_times[line['method']].append(line['response_time'])
+
+for method, values in all_response_times.iteritems():
+  percentiles[method]['percentile_85'] = percentile(values,percent=0.80)
+  percentiles[method]['percentile_90'] = percentile(values,percent=0.90)
+  percentiles[method]['percentile_95'] = percentile(values,percent=0.95)
+  percentiles[method]['number_of_requests'] = len(values)
+  percentiles[method]['max'] = max(values)
+  percentiles[method]['mean'] = sum(values) / len(values)
+
+  # It's ugly to display time in scientified notation so we'll create a floor
+  percentiles[method]['min'] = min(values) + 0.0001
+
+logs['total'] = logs['processed'] + logs['skipped']
+
+# Throw in our longest request, total requests processed, and cache ratio
+percentiles['request_statistics']['longest_request'] = longest_request['log']
+percentiles['request_statistics']['logs'] = logs
+percentiles['request_statistics']['requests_per_second'] = \
+  float(seconds) / logs['processed']
+percentiles['request_statistics']['get_cache_hit_ratio'] = \
+  float(cache['hit']) / (cache['miss'] + cache['hit']) * 100
+
+if output == 'json':
+  print json.dumps(percentiles, sort_keys=True, indent=4)
+else:
+  print yaml.dump(percentiles, indent=4, default_flow_style=False)
