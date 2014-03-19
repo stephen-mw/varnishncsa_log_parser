@@ -1,7 +1,7 @@
 # Parse varnish logs
 This script will parse NCSA style logs. It calculates 80th, 90th, and 95th percentile information along with other things, such as longest requests, requests per second, cache-hit ratio, etc.
 
-This script is the ability to only search back N seconds in a long, preventing unnecessary calculations as well as providing you statistics that serve as point-in-time references.
+This script is the ability to only search back N seconds in a log, preventing unnecessary calculations as well as providing you statistics that serve as point-in-time references.
 
 While this script is specifically for parsing varnish logs, it can easily be ported to any NCSA style log with very little work.
 ### Using the script
