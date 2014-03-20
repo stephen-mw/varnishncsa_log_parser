@@ -113,10 +113,11 @@ for line in reversed(open(filename).readlines()):
     pass
 
   # For GETs we want to measure the cache hit ratio.
-  if log['method'] == 'GET' and values[log_column['cache']] == "hit":
-    cache['hit'] += 1
-  else:
-    cache['miss'] += 1
+  if log['method'] == 'GET':
+    if values[log_column['cache']] == "hit":
+      cache['hit'] += 1
+    else:
+      cache['miss'] += 1
 
   # We break out here if we've hit a line that's too old
   date = int(datetime.strptime(log['date'], log_format).strftime('%s'))
