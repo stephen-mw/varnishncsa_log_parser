@@ -167,7 +167,7 @@ for method, values in all_response_times.iteritems():
   percentiles[method]['max'] = max(values)
   percentiles[method]['mean'] = sum(values) / len(values)
 
-  # It's ugly to display time in scientified notation so we'll create a floor
+  # It's ugly to display time in scientific notation so we'll create a floor
   percentiles[method]['min'] = min(values) + 0.0001
 
 logs['total'] = logs['processed'] + logs['skipped']
